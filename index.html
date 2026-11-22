@@ -84,7 +84,7 @@ input:focus,textarea:focus{border-color:var(--accent)}
 .err{color:var(--error);font-size:14px;margin:14px 0 0;min-height:1.4em}
 .actions{display:flex;align-items:center;gap:14px;margin-top:28px;flex-wrap:wrap}
 .btn{appearance:none;border:0;border-radius:999px;padding:15px 28px;font:700 16px var(--body);cursor:pointer;
-  background:var(--accent);color:var(--accent-ink);display:inline-flex;align-items:center;gap:10px;transition:transform .1s,filter .15s}
+  background:var(--accent);color:var(--accent-ink);text-decoration:none;display:inline-flex;align-items:center;gap:10px;transition:transform .1s,filter .15s}
 .btn:hover{filter:brightness(1.06)}
 .btn:active{transform:scale(.98)}
 .btn[disabled]{opacity:.6;cursor:wait}
@@ -133,7 +133,9 @@ input[type=date]{min-height:48px}
 
 <script>
 /* ---- Google Form backend: answers land in the existing "Scale+ Onboarding Form" ---- */
-const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdvgDiZ6uW1hOfQsf2RNdou-PpHgsAzWPyfm3WHxkQf3gHBEA/formResponse";
+const FORM_VIEW = "https://docs.google.com/forms/d/e/1FAIpQLSdvgDiZ6uW1hOfQsf2RNdou-PpHgsAzWPyfm3WHxkQf3gHBEA/viewform";
+// Google Apps Script web app that saves answers into the Google Form (see receiver/Code.gs). Empty = use the pre-filled Google Form.
+const SCRIPT_URL = "";
 const STORE = "scaleplus-onboarding";
 const COMMIT = "I understand and I am committed to this process";
 const CONTENT = ["Bikini","Lingerie","Feet","Ass","Voice Notes","Boobs","Pussy pics","Full nude pics/videos","Video dick rates",
@@ -278,27 +280,50 @@ function next(){
   dir = 1; i++; render();
 }
 
-async function submit(){
-  const btn = document.getElementById("next");
-  btn.disabled = true; btn.textContent = "Sending…";
-  const body = new URLSearchParams();
+function buildAnswers(){
+  const a = {};
   for(const s of steps) for(const f of (s.fields||[])){
     if(!f.e) continue;
     const v = data[keyOf(f)];
-    if(f.t==="multi") (v||[]).forEach(o=>body.append("entry."+f.e, o));
-    else if(f.t==="consent"){ if(v) body.append("entry."+f.e, COMMIT); }
-    else if(f.t==="date") body.append("entry."+f.e, v ? prettyDate(v) : "");
-    else if(v) body.append("entry."+f.e, v);
+    if(f.t==="multi") a[f.e] = v || [];
+    else if(f.t==="consent") a[f.e] = v ? COMMIT : "";
+    else if(f.t==="date") a[f.e] = v ? prettyDate(v) : "";
+    else a[f.e] = v || "";
   }
-  body.append("entry.969509483", socials());           // IG, TikTok, Twitter usernames
-  body.append("entry.45020611", String(ageFrom(data.e273796012))); // Age, worked out from the birthday
+  a["969509483"] = socials();                          // IG, TikTok, Twitter usernames
+  a["45020611"] = String(ageFrom(data.e273796012));    // Age, worked out from the birthday
+  return a;
+}
+
+/* Backup route: Google's own form, pre-filled with every answer. She only taps "Submit" there. */
+function prefillUrl(a){
+  const p = new URLSearchParams({usp:"pp_url"});
+  for(const [k,v] of Object.entries(a)) [].concat(v).forEach(x=>{ if(x!=="") p.append("entry."+k, x); });
+  return FORM_VIEW + "?" + p.toString();
+}
+
+function showConfirmOnGoogle(a){
+  document.getElementById("count").textContent = "";
+  form.innerHTML = `<div class="step">
+    <p class="eyebrow">One last click</p>
+    <h2>Confirm your answers on Google</h2>
+    <p class="hint">All your answers are already filled in. Tap the button, scroll to the bottom of the Google page and press <b>Submit</b> (or <b>Envoyer</b>). That's it.</p>
+    <div class="actions"><a class="btn" href="${esc(prefillUrl(a))}" rel="noopener">Open and submit →</a></div></div>`;
+}
+
+async function submit(){
+  const btn = document.getElementById("next");
+  btn.disabled = true; btn.textContent = "Sending…";
+  const answers = buildAnswers();
+  if(!SCRIPT_URL){ showConfirmOnGoogle(answers); return; }
   try{
-    await fetch(FORM_URL, {method:"POST", mode:"no-cors", body});
+    const res = await fetch(SCRIPT_URL, {method:"POST", body: JSON.stringify({answers})});
+    const out = await res.json();
+    if(!out.ok) throw new Error(out.error || "not saved");
     try{ localStorage.removeItem(STORE) }catch(e){}
     dir = 1; i = steps.length-1; render(); try{ localStorage.removeItem(STORE) }catch(e){}
   }catch(e){
-    btn.disabled = false; btn.textContent = "Send my answers";
-    document.getElementById("err").textContent = "We couldn't send your answers. Check your connection and try again. Nothing is lost.";
+    showConfirmOnGoogle(answers);   // never lose an application: fall back to Google's own form
   }
 }
 
