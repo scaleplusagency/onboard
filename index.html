@@ -133,7 +133,8 @@ input[type=date]{min-height:48px}
 
 <script>
 /* ---- Google Form backend: answers land in the existing "Scale+ Onboarding Form" ---- */
-const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdvgDiZ6uW1hOfQsf2RNdou-PpHgsAzWPyfm3WHxkQf3gHBEA/formResponse";
+// Google Apps Script attached to the "Scale+ Onboarding Form" (see receiver/Code.gs): backs up, fills the form, e-mails the owner.
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbynAzXe72xkH1SXUKgpSBsciktvbyo6Y231_FlKRki7bgRnf43c4zdYByVIRYiIWEA3/exec";
 const STORE = "scaleplus-onboarding";
 const COMMIT = "I understand and I am committed to this process";
 const CONTENT = ["Bikini","Lingerie","Feet","Ass","Voice Notes","Boobs","Pussy pics","Full nude pics/videos","Video dick rates",
@@ -281,24 +282,27 @@ function next(){
 async function submit(){
   const btn = document.getElementById("next");
   btn.disabled = true; btn.textContent = "Sending…";
-  const body = new URLSearchParams();
+  const answers = {};
   for(const s of steps) for(const f of (s.fields||[])){
     if(!f.e) continue;
     const v = data[keyOf(f)];
-    if(f.t==="multi") (v||[]).forEach(o=>body.append("entry."+f.e, o));
-    else if(f.t==="consent"){ if(v) body.append("entry."+f.e, COMMIT); }
-    else if(f.t==="date") body.append("entry."+f.e, v ? prettyDate(v) : "");
-    else if(v) body.append("entry."+f.e, v);
+    if(f.t==="multi") answers[f.e] = v || [];
+    else if(f.t==="consent") answers[f.e] = v ? COMMIT : "";
+    else if(f.t==="date") answers[f.e] = v ? prettyDate(v) : "";
+    else answers[f.e] = v || "";
   }
-  body.append("entry.969509483", socials());           // IG, TikTok, Twitter usernames
-  body.append("entry.45020611", String(ageFrom(data.e273796012))); // Age, worked out from the birthday
+  answers["969509483"] = socials();                          // IG, TikTok, Twitter usernames
+  answers["45020611"] = String(ageFrom(data.e273796012));    // Age, worked out from the birthday
   try{
-    await fetch(FORM_URL, {method:"POST", mode:"no-cors", body});
+    const res = await fetch(SCRIPT_URL, {method:"POST", body: JSON.stringify({answers})});
+    const out = await res.json();
+    // The script saves a backup copy before filling the Google Form, so a form-side error still means the answers are kept.
+    if(!out.ok && !/formulaire|form/i.test(out.error||"")) throw new Error(out.error);
     try{ localStorage.removeItem(STORE) }catch(e){}
     dir = 1; i = steps.length-1; render(); try{ localStorage.removeItem(STORE) }catch(e){}
   }catch(e){
     btn.disabled = false; btn.textContent = "Send my answers";
-    document.getElementById("err").textContent = "We couldn't send your answers. Check your connection and try again. Nothing is lost.";
+    document.getElementById("err").textContent = "We couldn't send your answers. Check your connection and try again. Your answers are saved on this device.";
   }
 }
 
